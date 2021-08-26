@@ -5,12 +5,9 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
-
 import "./ISaver.sol";
-
 import "./adaptors/AlpacaAdaptor.sol";
 import "./adaptors/VenusAdaptor.sol";
-
 
 // This contract is owned by Timelock.
 contract Saver is ISaver, Ownable {
@@ -22,8 +19,13 @@ contract Saver is ISaver, Ownable {
   uint256 constant RATE_BASE = 1e8;
 
   address[] public allAdaptors;
-  address[] public currentAdaptorsUsed;
+  // address[] public currentAdaptorsUsed;
+  mapping(address => address[]) public getCurrentAdaptorsUsed;
+
   uint256 public minRateDifference = 100000000000000000; // 0.1% min
+
+  event Rebalance(address who, address token_, address adaptor, uint256 amount);
+  event Withdraw(address to, address token_, uint256 amount, uint256 balance);
 
   function setAdaptors(address[] memory allAdaptors_) external {
     allAdaptors = allAdaptors_;
@@ -38,8 +40,10 @@ contract Saver is ISaver, Ownable {
    */
   function getRate(address token_) external override view returns(uint256) {
     uint256 totalRate = 0;
-    for (uint256 i = 0; i < allAdaptors.length; i++) {
-      totalRate = totalRate.add(IAdaptor(allAdaptors[i]).getRate(token_));
+    address[] memory currentAdaptorsUsed = getCurrentAdaptorsUsed[token_];
+    for (uint256 i = 0; i < currentAdaptorsUsed.length; i++) {
+      uint256 adaptorRate = IAdaptor(currentAdaptorsUsed[i]).getRate(token_);
+      totalRate = totalRate.add(adaptorRate);
     }
     return totalRate;
   }
@@ -49,13 +53,99 @@ contract Saver is ISaver, Ownable {
    * getAmount 
    *
    * @param token_ : token address
-   * @return : return amount in saver
+   * @return : amount in saver
    */
   function getAmount(address token_) 
     external override view returns(uint256) {
     return _getCurrentAllocations(token_);
   }
-  
+
+  /**
+   *
+   * deposit tokens through adaptor
+   *
+   * @param token_ : address of baseToken
+   * @param _adaptorAddr : address of adaptor
+   * @param _amount : amount
+   * @return tokens : new tokens minted
+   */
+  function _depositAdaptorTokens(address token_, address _adaptorAddr, uint256 _amount) 
+    internal 
+    returns (uint256 tokens) {
+      if (_amount == 0) {
+        return tokens;
+      }
+
+      IAdaptor _adaptor = IAdaptor(_adaptorAddr);
+      IERC20(token_).safeTransfer(_adaptorAddr, _amount);
+      tokens = _adaptor.deposit(token_);
+  }
+
+  /**
+   *
+   * _withdrawFromAll
+   *
+   * @param adaptors : adaptor address list
+   *
+   */
+  function _withdrawFromAll(address token_, address[] storage adaptors) 
+    internal {
+      for (uint8 i = 0; i < adaptors.length; i++) {
+        address _adaptorAddr = adaptors[i];
+        IAdaptor _adaptor = IAdaptor(_adaptorAddr);
+        uint256 _withdrawAmount = _adaptor.getAmount(token_);
+        if (_withdrawAmount > 0) {
+          _adaptor.withdraw(token_, _withdrawAmount);
+        }
+      }
+  }
+
+  /**
+   *
+   * rebalance
+   *
+   * @param token_ : token address
+   *
+   */
+  function rebalance(address token_) external override {
+    uint256 _newAmount = _contractBalanceOf(token_);
+
+    bool shouldRebalance;
+    address bestAdaptor;
+
+    address[] storage currentAdaptorsUsed = getCurrentAdaptorsUsed[token_];
+    if (currentAdaptorsUsed.length == 1 && _newAmount > 0) {
+      (shouldRebalance, bestAdaptor) = _rebalanceCheck(token_, _newAmount, currentAdaptorsUsed[0]);
+      if (!shouldRebalance) {
+        // deposit to currently used
+        _depositAdaptorTokens(token_, currentAdaptorsUsed[0], _newAmount);
+        return; // hasNotRebalanced
+      }
+    }
+
+    if (currentAdaptorsUsed.length != 0) {
+      // withdraw all before
+      _withdrawFromAll(token_, currentAdaptorsUsed);
+    }
+
+    // remove all elements from `currentAdaptorsUsed`
+    delete getCurrentAdaptorsUsed[token_];
+
+    uint256 tokenBalance = _contractBalanceOf(token_);
+    require(tokenBalance != 0, "No Balance");
+
+    // (we are re-fetching aprs because after redeeming they changed)
+    (shouldRebalance, bestAdaptor) = _rebalanceCheck(token_, tokenBalance, address(0));
+    require(bestAdaptor != address(0), "No bestAdaptor");
+
+    // deposit to bestAdaptor
+    _depositAdaptorTokens(token_, bestAdaptor, tokenBalance);
+    // update currentAdaptorsUsed in Saver storage
+    currentAdaptorsUsed.push(bestAdaptor);
+
+    emit Rebalance(msg.sender, token_, bestAdaptor, tokenBalance);
+  }
+
   /**
    *
    * getAPRs 
@@ -76,87 +166,14 @@ contract Saver is ISaver, Ownable {
   }
 
   /**
-   * deposit tokens through adaptor
-   *
-   * @param token_ : address of baseToken
-   * @param _adaptorAddr : address of adaptor
-   * @param _amount : amount of underlying to be lended
-   * @return tokens : new tokens minted
-   */
-  function _depositAdaptorTokens(address token_, address _adaptorAddr, uint256 _amount) 
-    internal 
-    returns (uint256 tokens) {
-      if (_amount == 0) {
-        return tokens;
-      }
-
-      IAdaptor _adaptor = IAdaptor(_adaptorAddr);
-      IERC20(token_).safeTransfer(_adaptorAddr, _amount);
-      tokens = _adaptor.deposit(token_);
-  } 
-
-  /**
-   * Dynamic allocate all the pool across different lending protocols if needed
-   *
-   * @param token_ : token address
-   *
-   */
-  function rebalance(address token_) external override {
-    uint256 _newAmount = _contractBalanceOf(token_);
-
-    bool shouldRebalance;
-    address bestAdaptor;
-
-    if (currentAdaptorsUsed.length == 1 && _newAmount > 0) {
-      (shouldRebalance, bestAdaptor) = _rebalanceCheck(token_, _newAmount, currentAdaptorsUsed[0]);
-      if (!shouldRebalance) {
-        // deposit to currently used
-        _depositAdaptorTokens(token_, currentAdaptorsUsed[0], _newAmount);
-        return; // hasNotRebalanced
-      }
-    }
-
-    // withdraw all before
-    for(uint8 i = 0; i < allAdaptors.length; i++) {
-      address _adaptorAddr = allAdaptors[i];
-      IAdaptor _adaptor = IAdaptor(_adaptorAddr);
-      uint256 _withdrawAmount = _adaptor.getAmount(token_);
-      if (_withdrawAmount > 0) {
-        _adaptor.withdraw(token_, _withdrawAmount);
-      }
-    }
-
-    // remove all elements from `currentAdaptorsUsed`
-    delete currentAdaptorsUsed;
-
-    uint256 tokenBalance = _contractBalanceOf(token_);
-    
-    require(tokenBalance == 0, "No Balance");
-
-    // (we are re-fetching aprs because after redeeming they changed)
-    (shouldRebalance, bestAdaptor) = _rebalanceCheck(token_, tokenBalance, address(0));
-    // deposit to bestAdaptor
-    _depositAdaptorTokens(token_, bestAdaptor, tokenBalance);
-    // update current adaptor used in Saver storage
-    currentAdaptorsUsed.push(bestAdaptor);
-  }
-
-
-  /**
    * Check if a rebalance is needed
-   * if there is only one protocol and has the best rate then check the nextRateWithAmount()
-   * if rate is still the highest then put everything there
-   * otherwise rebalance with all amount
-   *
-   * @param _amount : amount of underlying tokens that needs to be added to the current pools NAV
    *
    */
-  function _rebalanceCheck(address token_, uint256 _amount, address currentAdaptor) 
+  function _rebalanceCheck(address token_, uint256 _amount, address currentAdaptor)
     internal view
     returns (bool, address) {
 
     (address[] memory addresses, uint256[] memory aprs) = getAPRs(token_);
-    
     if (aprs.length == 0) {
       return (false, address(0));
     }
@@ -219,12 +236,12 @@ contract Saver is ISaver, Ownable {
    * @param token_ : token address
    *
    */
-  function _getCurrentAllocations(address token_) internal view 
+  function _getCurrentAllocations(address token_)
+    internal view 
     returns (uint256 total) {
-    // amounts = new uint256[](allAdaptors.length);
-    // Get balance of every adaptor implemented
-    for (uint8 i = 0; i < allAdaptors.length; i++) {
-      address adaptorAddr = allAdaptors[i];
+    address[] memory currentAdaptorsUsed = getCurrentAdaptorsUsed[token_];
+    for (uint8 i = 0; i < currentAdaptorsUsed.length; i++) {
+      address adaptorAddr = currentAdaptorsUsed[i];
       IAdaptor _adaptor = IAdaptor(adaptorAddr);
       total = total.add(_adaptor.getAmount(token_));
     }
@@ -262,27 +279,31 @@ contract Saver is ISaver, Ownable {
   function withdraw(address token_, uint256 amount_, address toAddress_) 
     external override {
     uint256 amountTo = amount_;
-    for (uint8 i = 0; i < allAdaptors.length; i++) {
-      address adaptorAddr = allAdaptors[i];
+    address[] memory currentAdaptorsUsed = getCurrentAdaptorsUsed[token_];
+
+    for (uint8 i = 0; i < currentAdaptorsUsed.length; i++) {
+      address adaptorAddr = currentAdaptorsUsed[i];
       IAdaptor _adaptor = IAdaptor(adaptorAddr);
-      uint256 tokenPrice = _adaptor.getPriceInToken(token_);
-      uint256 holdAmount = IERC20(adaptorAddr).balanceOf(adaptorAddr);
-      // tokenPrice * cTokenAmount * 1e19
-      uint256 curAdaptorHoldAmount = tokenPrice.mul(holdAmount).div(10**18);
-      uint256 needReedemAmountToken = 0;
-      if (amountTo > curAdaptorHoldAmount) {
-        amountTo = amountTo.sub(curAdaptorHoldAmount);
-        needReedemAmountToken = curAdaptorHoldAmount.div(tokenPrice);
+      uint256 allAmount = _adaptor.getAmount(token_);
+      // same or greater
+      if (allAmount >= amountTo) {
+        _adaptor.withdraw(token_, amountTo);
+        amountTo = amountTo.sub(allAmount);
       } else {
-        needReedemAmountToken = amountTo.div(tokenPrice);
-        amountTo = 0;
-      }
-      if (needReedemAmountToken != 0) {
-        _adaptor.withdraw(token_, needReedemAmountToken);
+        _adaptor.withdraw(token_, amountTo);
       }
     }
 
-    // transfer
-    IERC20(token_).safeTransferFrom(address(this), toAddress_, amount_);
+    uint256 balance = IERC20(token_).balanceOf(address(this));
+    if (balance > 0) {
+      IERC20(token_).safeTransfer(toAddress_, amount_);
+    } else {
+      // native token?
+      SafeToken.safeTransferETH(toAddress_, amount_);
+    }
+
+    emit Withdraw(toAddress_, token_, amount_, balance);
   }
+
+  fallback() external payable{}
 }

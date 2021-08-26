@@ -1,12 +1,15 @@
+/**
+ * @title: AlpacaAdaptor
+ */
 pragma solidity 0.6.12;
 
-// import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 
 import "../IAdaptor.sol";
 import "../AdaptorRouter.sol";
+import "../SafeToken.sol";
 
 interface AlpacaValut {
   /// @dev Return the total ERC20 entitled to the token holders. Be careful of unaccrued interests.
@@ -27,15 +30,12 @@ interface AlpacaValut {
   function vaultDebtVal() external view returns (uint256);
   function reservePool() external view returns (uint256);
 
-  // function totalToken() external view returns (uint256);
   function totalSupply() external view returns (uint256);
 }
 
 interface IVaultConfig {
-
   function getReservePoolBps() external view returns (uint256);
   function getInterestRate(uint256 debt, uint256 floating) external view returns (uint256);
-  
 }
 
 contract AlpacaAdaptor is IAdaptor {
@@ -46,19 +46,22 @@ contract AlpacaAdaptor is IAdaptor {
   address public router;
   address public saver;
 
+  event Withdraw(address token_, uint256 input, uint256 price, uint256 amount, uint256 output);
+
   constructor(address router_, address saver_) public {
     router = router_;
     saver = saver_;
   }
 
-  function getName() override view public returns (string memory) {
-    return "AlpacaAdaptor";
+  function getName() 
+    override view public 
+    returns (string memory) {
+      return "AlpacaAdaptor";
   }
 
   /**
-   *
-   * getRate APR
-   *
+   * getRate
+   * interest rate per second, scaled by 1e18
    */
   function getRate(address token_) 
     external override view 
@@ -68,29 +71,43 @@ contract AlpacaAdaptor is IAdaptor {
 
   /**
    *
-   * _calcRate APR
+   * _calcRate
    *
    */
   function _calcRate(address baseToken, uint256 _amount) 
     internal view
-    returns (uint256 apr) {
+    returns (uint256 rate) {
+      require(baseToken != address(0), "baseToken must provide");
+
       address alpacaAddr = AdaptorRouter(router).getPair(baseToken, getName());
       AlpacaValut _valut = AlpacaValut(alpacaAddr);
-      IVaultConfig config = IVaultConfig(_valut.config());
+
+      address configAddr = _valut.config();
+      require(configAddr != address(0), "config address not found");
+
+      IVaultConfig config = IVaultConfig(configAddr);
+
+      uint256 BASE_19 = 10**19;
+      uint256 BASE_15 = 10**15;
+      uint256 BASE_37 = 10**37;
 
       uint256 vaultDebtVal = _valut.vaultDebtVal();
       uint256 tokenAddressBalance = IERC20(baseToken).balanceOf(alpacaAddr);
       tokenAddressBalance = tokenAddressBalance.add(_amount);
 
-      uint256 interestRate = config.getInterestRate(vaultDebtVal, tokenAddressBalance);
       uint256 reservePoolBps = config.getReservePoolBps();
 
-      uint256 debRate = vaultDebtVal.mul(1e19).div(vaultDebtVal.add(tokenAddressBalance));
+      uint256 interestRate = config.getInterestRate(vaultDebtVal, tokenAddressBalance);
+      uint256 depUtilizationRate = _getUtilizationRate(vaultDebtVal, tokenAddressBalance);
+      uint256 afterReservePoolRate = BASE_19.sub(reservePoolBps.mul(BASE_15));
 
-      uint256 totalPiece = 1e19;
-      uint256 afterReservePoolRate = totalPiece.sub(reservePoolBps.mul(1e15));
-      // apr = 	interestRate * yearsSecond * vaultDebtValRate * afterReservePoolRate / 1e36;
-      apr = interestRate.mul(31536e3).mul(debRate).mul(afterReservePoolRate).div(1e36);
+      rate = interestRate.mul(depUtilizationRate).mul(afterReservePoolRate).div(BASE_37);
+  }
+
+  function _getUtilizationRate(uint256 debtVal, uint256 balance)
+    internal view 
+    returns (uint256 rate) {
+      rate = debtVal.mul(10**18).div(debtVal.add(balance));
   }
 
   /**
@@ -98,10 +115,27 @@ contract AlpacaAdaptor is IAdaptor {
    */
   function getPriceInToken(address baseToken)
     public override view
-    returns (uint256) {
+    returns (uint256 price) {
       address alpacaAddr = AdaptorRouter(router).getPair(baseToken, getName());
       AlpacaValut _valut = AlpacaValut(alpacaAddr);
-      return _valut.totalToken().div(_valut.totalSupply());
+      price = _valut.totalToken().mul(10**18).div(_valut.totalSupply());
+  }
+
+
+  /**
+   *  getStatus of Adaptor
+   */
+  function getStatus(address token_) 
+    public view
+    returns (uint256[] memory status) {
+      address alpacaAddr = AdaptorRouter(router).getPair(token_, getName());
+      AlpacaValut _valut = AlpacaValut(alpacaAddr);
+      status = new uint256[](5);
+      status[0] = _valut.totalToken();
+      status[1] = _valut.totalSupply();
+      status[2] = IERC20(alpacaAddr).balanceOf(address(this));
+      status[3] = _calcRate(token_, 0);
+      status[4] = IVaultConfig(_valut.config()).getReservePoolBps();
   }
 
   /** 
@@ -113,7 +147,7 @@ contract AlpacaAdaptor is IAdaptor {
       address alpacaAddr = AdaptorRouter(router).getPair(baseToken, getName());
       uint256 tokenPrice = getPriceInToken(baseToken);
       uint256 holdAmount = IERC20(alpacaAddr).balanceOf(address(this));
-      amount = tokenPrice.mul(holdAmount).div(10**18);
+      amount = holdAmount.mul(tokenPrice).div(10**18);
   }
   
   /**
@@ -133,12 +167,12 @@ contract AlpacaAdaptor is IAdaptor {
    *
    */
   function deposit(address token_)
-    external override
-    returns (uint256 _tokens)
-    {
+    external override payable
+    returns (uint256 _tokens) {
       address alpacaAddr = AdaptorRouter(router).getPair(token_, getName());
       uint256 _balance = IERC20(token_).balanceOf(address(this));
       if (_balance > 0) {
+        IERC20(token_).safeApprove(alpacaAddr, _balance);
         AlpacaValut(alpacaAddr).deposit(_balance);
         _tokens = IERC20(alpacaAddr).balanceOf(address(this));
       }
@@ -149,17 +183,28 @@ contract AlpacaAdaptor is IAdaptor {
    * witdraw from adaptor
    *
    */
-  function withdraw(address token_, uint256 _amount)
+  function withdraw(address token_, uint256 _bamount)
     external override
     returns (uint256 _tokens) {
       address alpacaAddr = AdaptorRouter(router).getPair(token_, getName());
+      uint256 tokenPrice = getPriceInToken(token_);
+      uint256 _amount = _bamount.mul(10**18).div(tokenPrice);
+
       uint256 _balance = IERC20(alpacaAddr).balanceOf(address(this));
       if (_balance > 0) {
         AlpacaValut(alpacaAddr).withdraw(_amount);
         IERC20 _underlying = IERC20(token_);
         _tokens = _underlying.balanceOf(address(this));
-        _underlying.safeTransfer(msg.sender, _amount);
+
+        if (_tokens > 0) {
+          _underlying.safeTransfer(msg.sender, _tokens);
+        } else {
+          // native token?
+          SafeToken.safeTransferETH(msg.sender, _bamount);
+        }
       }
+
+      emit Withdraw(token_, _bamount, tokenPrice, _amount, _tokens);
   }
 
   /**
@@ -176,4 +221,6 @@ contract AlpacaAdaptor is IAdaptor {
       uint256 tokenAddressBalance = IERC20(token_).balanceOf(alpacaAddr);
       return tokenAddressBalance.sub(reservePool);
   }
+
+  fallback() external payable{}
 }

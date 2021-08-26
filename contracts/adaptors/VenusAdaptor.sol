@@ -1,8 +1,5 @@
 /**
- * @title: Venus adapter
- * @summary: Used for interacting with Venue. Has
- *           a common interface with all other protocol wrappers.
- *           This contract holds assets only during a tx, after tx it should be empty
+ * @title: VenusAdaptor
  */
 pragma solidity 0.6.12;
 
@@ -12,17 +9,6 @@ import "@openzeppelin/contracts/math/SafeMath.sol";
 
 import "../IAdaptor.sol";
 import "../AdaptorRouter.sol";
-
-// interface ILendingProtocol {
-//   function mint() external returns (uint256);
-//   function redeem(address account) external returns (uint256);
-//   function nextSupplyRate(uint256 amount) external view returns (uint256);
-//   function getAPR() external view returns (uint256);
-//   function getPriceInToken() external view returns (uint256);
-//   function token() external view returns (address);
-//   function underlying() external view returns (address);
-//   function availableLiquidity() external view returns (uint256);
-// }
 
 interface CERC20 {
   function mint(uint256 mintAmount) external returns (uint256);
@@ -41,7 +27,6 @@ interface CERC20 {
   function underlying() external view returns (address);
 }
 
-// import "../interfaces/WhitePaperInterestRateModel.sol";
 interface WhitePaperInterestRateModel {
   function getBorrowRate(uint256 cash, uint256 borrows, uint256 _reserves) external view returns (uint256, uint256);
   function getSupplyRate(uint256 cash, uint256 borrows, uint256 reserves, uint256 reserveFactorMantissa) external view returns (uint256);
@@ -57,12 +42,14 @@ contract VenusAdaptor is IAdaptor {
 
   address public router;
   address public saver;
-  uint256 public blocksPerYear;
+  uint256 public secondsPerBlock;
+
+  event Withdraw(address token_, uint256 amount, uint256 _bamount, uint256 tokenPrice);
 
   constructor(address router_, address saver_) public {
     router = router_;
     saver = saver_;
-    blocksPerYear = 10512000;
+    secondsPerBlock = 3;
   }
   
   modifier onlySaver() {
@@ -70,30 +57,30 @@ contract VenusAdaptor is IAdaptor {
     _;
   }
 
-  function getName() public override view returns (string memory) {
-    return "VenusAdaptor";
+  function getName() 
+    public override view 
+    returns (string memory) {
+      return "VenusAdaptor";
   }
 
   /**
-   * Calculate next supply rate for Compound, given an `_amount` supplied
-   *
-   * @param token_ : token address (eg DAI)
-   * @param _amount : new underlying amount supplied (eg DAI)
-   * @return : yearly net rate
+   * Calculate next supply rate for Venus, given an `_amount` supplied
    */
   function nextSupplyRate(address token_, uint256 _amount)
     external override view
     returns (uint256) {
       address cToken_ = AdaptorRouter(router).getPair(token_, getName());
       CERC20 cToken = CERC20(cToken_);
-      WhitePaperInterestRateModel white = WhitePaperInterestRateModel(CERC20(cToken_).interestRateModel());
+      WhitePaperInterestRateModel white = WhitePaperInterestRateModel(
+        CERC20(cToken_).interestRateModel()
+      );
       uint256 ratePerBlock = white.getSupplyRate(
         cToken.getCash().add(_amount),
         cToken.totalBorrows(),
         cToken.totalReserves(),
         cToken.reserveFactorMantissa()
       );
-      return ratePerBlock.mul(blocksPerYear).mul(100);
+      return ratePerBlock.div(secondsPerBlock);
   }
 
   /**
@@ -108,7 +95,6 @@ contract VenusAdaptor is IAdaptor {
       return CERC20(cToken_).exchangeRateStored();
   }
 
-  
   /** 
    *  get Amount
    */
@@ -122,53 +108,59 @@ contract VenusAdaptor is IAdaptor {
   }
 
   /**
-   * @return apr : current yearly net rate
+   * getRate 
+   * interest rate per second, scaled by 1e18
    */
   function getRate(address token_)
     external override view
     returns (uint256) {
-      // return nextSupplyRate(0);
-      // more efficient
       address cToken_ = AdaptorRouter(router).getPair(token_, getName());
-      return CERC20(cToken_).supplyRatePerBlock().mul(blocksPerYear).mul(100);
+      return CERC20(cToken_).supplyRatePerBlock().div(secondsPerBlock);
   }
 
   /**
-   * Gets all underlying tokens in this contract and mints cTokenLike Tokens
-   * tokens are then transferred to msg.sender
-   * NOTE: underlying tokens needs to be sent here before calling this
+   *
+   * deposit
    *
    */
   function deposit(address token_) 
-    external override
+    external override payable
     returns (uint256 crTokens) {
+      require(router != address(0), "router not found");
       address cToken_ = AdaptorRouter(router).getPair(token_, getName());
+      require(cToken_ != address(0), "token_ target empty");
       uint256 balance = IERC20(token_).balanceOf(address(this));
       if (balance != 0) {
         IERC20 _token = IERC20(cToken_);
+        IERC20(token_).safeApprove(cToken_, balance);
         require(CERC20(cToken_).mint(balance) == 0, "Error minting crTokens");
         crTokens = _token.balanceOf(address(this));
-        // _token.safeTransfer(msg.sender, crTokens);
       }
   }
 
   /**
-   * Gets all cTokenLike in this contract and redeems underlying tokens.
-   * underlying tokens are then transferred to `_account`
-   * NOTE: cTokenLike needs to be sent here before calling this
+   *
+   * withdraw
    *
    */
-  function withdraw(address token_, uint256 _amount)
+  function withdraw(address token_, uint256 _bamount)
     external override
     returns (uint256 tokens) {
       address cToken_ = AdaptorRouter(router).getPair(token_, getName());
+
+      uint256 tokenPrice = getPriceInToken(token_);
+      uint256 _amount = _bamount.mul(10**18).div(tokenPrice);
+
       require(CERC20(cToken_).redeem(_amount) == 0, "Error redeeming crTokens");
       IERC20 _underlying = IERC20(token_);
       tokens = _underlying.balanceOf(address(this));
       _underlying.safeTransfer(msg.sender, tokens);
-  }
+
+      emit Withdraw(token_, _amount, _bamount, tokenPrice);
+  } 
 
   /**
+   *
    * Get the underlying balance on the lending protocol
    *
    */
@@ -178,4 +170,6 @@ contract VenusAdaptor is IAdaptor {
       address cToken_ = AdaptorRouter(router).getPair(token_, getName());
       return CERC20(cToken_).getCash();
   }
+
+  fallback() external payable{}
 }
