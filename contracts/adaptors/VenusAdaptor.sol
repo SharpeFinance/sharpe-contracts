@@ -6,9 +6,9 @@ pragma solidity 0.6.12;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
-
 import "../IAdaptor.sol";
 import "../AdaptorRouter.sol";
+
 
 interface CERC20 {
   function mint(uint256 mintAmount) external returns (uint256);
@@ -16,15 +16,17 @@ interface CERC20 {
   function redeem(uint256 redeemTokens) external returns (uint256);
   function exchangeRateStored() external view returns (uint256);
   function supplyRatePerBlock() external view returns (uint256);
-
   function borrowRatePerBlock() external view returns (uint256);
   function totalReserves() external view returns (uint256);
   function getCash() external view returns (uint256);
   function totalBorrows() external view returns (uint256);
   function reserveFactorMantissa() external view returns (uint256);
   function interestRateModel() external view returns (address);
-
   function underlying() external view returns (address);
+}
+
+interface VBNB {
+  function mint() external payable;
 }
 
 interface WhitePaperInterestRateModel {
@@ -127,14 +129,20 @@ contract VenusAdaptor is IAdaptor {
     external override payable
     returns (uint256 crTokens) {
       require(router != address(0), "router not found");
-      address cToken_ = AdaptorRouter(router).getPair(token_, getName());
+      AdaptorRouter config = AdaptorRouter(router);
+      address cToken_ = config.getPair(token_, getName());
       require(cToken_ != address(0), "token_ target empty");
       uint256 balance = IERC20(token_).balanceOf(address(this));
       if (balance != 0) {
-        IERC20 _token = IERC20(cToken_);
-        IERC20(token_).safeApprove(cToken_, balance);
-        require(CERC20(cToken_).mint(balance) == 0, "Error minting crTokens");
-        crTokens = _token.balanceOf(address(this));
+        // if current token is wBNB, convert wBNB to BNB
+        if (token_ == config.getWrappedNativeAddr()) {
+          IWETH(config.getWrappedNativeAddr()).withdraw(balance);
+          VBNB(cToken_).mint{ value: balance }();
+        } else {
+          IERC20(token_).safeApprove(cToken_, balance);
+          require(CERC20(cToken_).mint(balance) == 0, "Error minting crTokens");
+        }
+        crTokens = IERC20(cToken_).balanceOf(address(this));
       }
   }
 
@@ -146,12 +154,19 @@ contract VenusAdaptor is IAdaptor {
   function withdraw(address token_, uint256 _bamount)
     external override
     returns (uint256 tokens) {
-      address cToken_ = AdaptorRouter(router).getPair(token_, getName());
+      AdaptorRouter config = AdaptorRouter(router);
+      address cToken_ = config.getPair(token_, getName());
 
       uint256 tokenPrice = getPriceInToken(token_);
       uint256 _amount = _bamount.mul(10**18).div(tokenPrice);
 
       require(CERC20(cToken_).redeem(_amount) == 0, "Error redeeming crTokens");
+
+      // if current token is wBNB, convert BNB to wBNB
+      if (token_ == config.getWrappedNativeAddr()) {
+        IWETH(config.getWrappedNativeAddr()).deposit{ value: _bamount }();
+      }
+
       IERC20 _underlying = IERC20(token_);
       tokens = _underlying.balanceOf(address(this));
       _underlying.safeTransfer(msg.sender, tokens);

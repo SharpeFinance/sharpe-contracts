@@ -10,3 +10,9 @@ interface IAdaptor {
   function getPriceInToken(address token_) external view returns (uint256);
   function availableLiquidity(address token_) external view returns (uint256);
 }
+
+interface IWETH {
+  function deposit() external payable;
+  function transfer(address to, uint256 value) external returns (bool);
+  function withdraw(uint256) external;
+}

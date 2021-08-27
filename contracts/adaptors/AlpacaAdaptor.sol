@@ -11,6 +11,7 @@ import "../IAdaptor.sol";
 import "../AdaptorRouter.sol";
 import "../SafeToken.sol";
 
+
 interface AlpacaValut {
   /// @dev Return the total ERC20 entitled to the token holders. Be careful of unaccrued interests.
   function totalToken() external view returns (uint256);
@@ -186,13 +187,22 @@ contract AlpacaAdaptor is IAdaptor {
   function withdraw(address token_, uint256 _bamount)
     external override
     returns (uint256 _tokens) {
-      address alpacaAddr = AdaptorRouter(router).getPair(token_, getName());
+
+      AdaptorRouter config = AdaptorRouter(router);
+      address alpacaAddr = config.getPair(token_, getName());
       uint256 tokenPrice = getPriceInToken(token_);
       uint256 _amount = _bamount.mul(10**18).div(tokenPrice);
 
       uint256 _balance = IERC20(alpacaAddr).balanceOf(address(this));
       if (_balance > 0) {
+
         AlpacaValut(alpacaAddr).withdraw(_amount);
+
+        // if current token is wBNB, convert BNB to wBNB
+        if (token_ == config.getWrappedNativeAddr()) {
+          IWETH(config.getWrappedNativeAddr()).deposit{ value: _bamount }();
+        }
+
         IERC20 _underlying = IERC20(token_);
         _tokens = _underlying.balanceOf(address(this));
 
