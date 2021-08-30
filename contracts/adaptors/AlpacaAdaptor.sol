@@ -54,6 +54,11 @@ contract AlpacaAdaptor is IAdaptor {
     saver = saver_;
   }
 
+  modifier onlySaver() {
+    require(msg.sender == saver, "Ownable: caller is not Saver");
+    _;
+  }
+
   function getName() 
     override view public 
     returns (string memory) {
@@ -168,7 +173,7 @@ contract AlpacaAdaptor is IAdaptor {
    *
    */
   function deposit(address token_)
-    external override payable
+    external override payable onlySaver
     returns (uint256 _tokens) {
       address alpacaAddr = AdaptorRouter(router).getPair(token_, getName());
       uint256 _balance = IERC20(token_).balanceOf(address(this));
@@ -185,7 +190,7 @@ contract AlpacaAdaptor is IAdaptor {
    *
    */
   function withdraw(address token_, uint256 _bamount)
-    external override
+    external override onlySaver
     returns (uint256 _tokens) {
 
       AdaptorRouter config = AdaptorRouter(router);

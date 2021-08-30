@@ -126,7 +126,7 @@ contract VenusAdaptor is IAdaptor {
    *
    */
   function deposit(address token_) 
-    external override payable
+    external override payable onlySaver
     returns (uint256 crTokens) {
       require(router != address(0), "router not found");
       AdaptorRouter config = AdaptorRouter(router);
@@ -152,7 +152,7 @@ contract VenusAdaptor is IAdaptor {
    *
    */
   function withdraw(address token_, uint256 _bamount)
-    external override
+    external override onlySaver
     returns (uint256 tokens) {
       AdaptorRouter config = AdaptorRouter(router);
       address cToken_ = config.getPair(token_, getName());
