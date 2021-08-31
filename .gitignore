@@ -4,3 +4,4 @@
 /build/
 *.swp
 .secret
+.DS_Store

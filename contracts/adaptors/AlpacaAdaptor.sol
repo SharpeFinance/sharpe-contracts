@@ -7,7 +7,7 @@ import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 
-import "../IAdaptor.sol";
+import "../interfaces/IAdaptor.sol";
 import "../AdaptorRouter.sol";
 import "../SafeToken.sol";
 
