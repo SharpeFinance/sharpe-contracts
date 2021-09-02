@@ -236,7 +236,7 @@ contract Vault is Ownable {
     require(lpToken.approve(address(router), uint256(-1)), "Vault::_removeLiquidity:: unable to approve LP token");
 
     // 3. Remove all liquidity back to BaseToken and farming tokens.
-    router.removeLiquidity(
+    (uint256 amountA, uint256 amountB) router.removeLiquidity(
       baseToken,
       farmingToken,
       lpAmount_,
@@ -246,9 +246,9 @@ contract Vault is Ownable {
       now
     );
 
-    // 4. Payback to bank
-    IBank(registry.brank()).payBack(farmingToken, amount0_);
+    // 4. Payback farmingToken to bank 
+    IBank(registry.brank()).payBack(farmingToken, amountB);
     
-    return 0;
+    return amountA;
   }
 }
