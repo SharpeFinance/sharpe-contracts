@@ -13,7 +13,6 @@ import "./interfaces/IRegistry.sol";
 import "./interfaces/pancake/IPancakeRouter02.sol";
 import "./SafeToken.sol";
 
-
 interface IBank {
   function borrow(address token_, uint256 amount_) external;
   function payBack(address token_, uint256 amount_ ) external;
