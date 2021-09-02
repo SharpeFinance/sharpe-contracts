@@ -1,11 +1,13 @@
 const AlpacaAdaptor = artifacts.require("AlpacaAdaptor");
 const AdaptorRouter = artifacts.require("AdaptorRouter");
 const VenusAdaptor = artifacts.require("VenusAdaptor");
-const Bank = artifacts.require("Bank");
 const Registry = artifacts.require("Registry");
 const BasicModel = artifacts.require("BasicModel");
 
+const Bank = artifacts.require("Bank");
+const Vault = artifacts.require("Vault");
 const Saver = artifacts.require("Saver");
+
 const fs = require('fs');
 
 module.exports = async function (deployer, network, accounts) {
@@ -36,15 +38,17 @@ module.exports = async function (deployer, network, accounts) {
     await deployer.deploy(AlpacaAdaptor, routerAddr, saverAddr),
     await deployer.deploy(VenusAdaptor, routerAddr, saverAddr),
     await deployer.deploy(Bank, registry.address),
+    await deployer.deploy(Vault, registry.address),
   ]);
 
   await registry.setSaver(saverAddr);
   await registry.setInterestModel(basicModel.address);
 
-  const [ alpaca, venus, bank ] = await Promise.all([
+  const [ alpaca, venus, bank, vault ] = await Promise.all([
     await AlpacaAdaptor.deployed(),
     await VenusAdaptor.deployed(),
-    await Bank.deployed()
+    await Bank.deployed(),
+    await Vault.deployed()
   ]);
 
   const restult = await saver.setAdaptors([
@@ -82,7 +86,8 @@ module.exports = async function (deployer, network, accounts) {
     AlpacaAdaptor: alpaca.address,
     VenusAdaptor: venus.address,
     Registry: registry.address,
-    Bank: bank.address
+    Bank: bank.address,
+    Vault: vault.address
   }))
   // console.log(createPairs)
 };

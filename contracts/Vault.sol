@@ -69,7 +69,7 @@ contract Vault is Ownable {
   function getPrice(uint256 pairId_) public view returns(uint256) {
   }
 
-  function getPriceNearBy(uint256 pairId_) public view returns(uint256 [] memory) {
+  function getPriceNearBy(uint256 pairId_) public view returns(uint256[] memory) {
   }
 
   function findAvailableIndex(uint256 pairId_, address who_) public view returns(uint256) {
@@ -202,8 +202,7 @@ contract Vault is Ownable {
     IBank(registry.bank()).borrow(farmingToken, amount0_);
 
     // 4. Mint LP Token
-    (, , uint256 moreLPAmount) = 
-      router.addLiquidity(
+    (, , uint256 moreLPAmount) = router.addLiquidity(
         baseToken,
         farmingToken,
         baseToken.myBalance(),
@@ -215,7 +214,6 @@ contract Vault is Ownable {
       );
 
     lpAmount = moreLPAmount;
-    
     // 5. Reset approval for safety reason
     baseToken.safeApprove(address(router), 0);
     farmingToken.safeApprove(address(router), 0);
@@ -236,19 +234,18 @@ contract Vault is Ownable {
     require(lpToken.approve(address(router), uint256(-1)), "Vault::_removeLiquidity:: unable to approve LP token");
 
     // 3. Remove all liquidity back to BaseToken and farming tokens.
-    (uint256 amountA, uint256 amountB) router.removeLiquidity(
-      baseToken,
-      farmingToken,
-      lpAmount_,
-      0,
-      0,
-      address(this),
-      now
-    );
+    (uint256 amountA, uint256 amountB) = router.removeLiquidity(
+        baseToken,
+        farmingToken,
+        lpAmount_,
+        0,
+        0,
+        address(this),
+        now
+      );
 
     // 4. Payback farmingToken to bank
     IBank(registry.bank()).payBack(farmingToken, amountB);
-    
     return amountA;
   }
 }
