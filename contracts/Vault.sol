@@ -199,7 +199,7 @@ contract Vault is Ownable {
     baseToken.safeApprove(address(router), uint256(-1));
 
     // 3. Borrow token1 from bank
-    IBank(registry.brank()).borrow(farmingToken, amount0_);
+    IBank(registry.bank()).borrow(farmingToken, amount0_);
 
     // 4. Mint LP Token
     (, , uint256 moreLPAmount) = 
@@ -245,8 +245,8 @@ contract Vault is Ownable {
       now
     );
 
-    // 4. Payback farmingToken to bank 
-    IBank(registry.brank()).payBack(farmingToken, amountB);
+    // 4. Payback farmingToken to bank
+    IBank(registry.bank()).payBack(farmingToken, amountB);
     
     return amountA;
   }
