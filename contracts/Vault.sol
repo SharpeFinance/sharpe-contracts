@@ -215,6 +215,7 @@ contract Vault is Ownable {
       );
 
     lpAmount = moreLPAmount;
+    
     // 5. Reset approval for safety reason
     baseToken.safeApprove(address(router), 0);
     farmingToken.safeApprove(address(router), 0);
