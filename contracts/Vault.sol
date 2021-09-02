@@ -6,6 +6,15 @@ import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 
+import "@pancakeswap-libs/pancake-swap-core/contracts/interfaces/IPancakeFactory.sol";
+import "@pancakeswap-libs/pancake-swap-core/contracts/interfaces/IPancakePair.sol";
+
+import "./interfaces/IRegistry.sol";
+
+interface IBank {
+  function borrow(address token_, uint256 amount_) external;
+  function payBack(address token_, uint256 amount_ ) external;
+}
 
 // This contract is owned by Timelock.
 contract Vault is Ownable {
@@ -47,6 +56,12 @@ contract Vault is Ownable {
 
   // who => pairId => index => Position
   mapping(address => mapping(uint256 => mapping(uint256 => Position))) public allPositions;
+
+  IRegistry public registry;
+
+  constructor (IRegistry registry_) public {
+    registry = registry_;
+  }
 
   function getPrice(uint256 pairId_) public view returns(uint256) {
   }
@@ -166,6 +181,14 @@ contract Vault is Ownable {
   }
 
   function _borrowAndAddLiquidity(uint256 pairId_, uint256 amount0_) private returns(uint256) {
+
+    PairInfo memory pairInfo = pairInfoMap[pairId_];
+
+    // borrow from bank
+    IBank(registry.brank()).borrow(pairInfo.token1, amount0_);
+
+    
+
   }
 
   function _removeLiquidity(uint256 pairId_, uint256 lpAmount_) private returns(uint256) {
