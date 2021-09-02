@@ -10,7 +10,9 @@ import "@pancakeswap-libs/pancake-swap-core/contracts/interfaces/IPancakeFactory
 import "@pancakeswap-libs/pancake-swap-core/contracts/interfaces/IPancakePair.sol";
 
 import "./interfaces/IRegistry.sol";
-import "./apis/pancakeV2/PancakeRouterV2.sol";
+import "./interfaces/pancake/IPancakeRouter02.sol";
+import "./SafeToken.sol";
+
 
 interface IBank {
   function borrow(address token_, uint256 amount_) external;
@@ -20,6 +22,7 @@ interface IBank {
 // This contract is owned by Timelock.
 contract Vault is Ownable {
 
+  using SafeToken for address;
   using SafeERC20 for IERC20;
   using SafeMath for uint256;
 
@@ -181,20 +184,71 @@ contract Vault is Ownable {
   function transferAfterStop() external {
   }
 
-  function _borrowAndAddLiquidity(uint256 pairId_, uint256 amount0_) private returns(uint256) {
+  function _borrowAndAddLiquidity(uint256 pairId_, uint256 amount0_) private returns(uint256 lpAmount) {
 
     PairInfo memory pairInfo = pairInfoMap[pairId_];
+    address baseToken = pairInfo.token0;
+    address farmingToken = pairInfo.token1;
 
-    // borrow from bank
+    // 1. Initliaze factory and router
+    IPancakeRouter02 router = IPancakeRouter02(registry.pancake());
+    IPancakeFactory factory = IPancakeFactory(router.factory());
+    // IPancakePair lpToken = IPancakePair(factory.getPair(baseToken, farmingToken));
+
+    // 2. Approve router to do their stuffs
+    farmingToken.safeApprove(address(router), uint256(-1));
+    baseToken.safeApprove(address(router), uint256(-1));
+
+    // 3. Borrow token1 from bank
     IBank(registry.brank()).borrow(pairInfo.token1, amount0_);
 
-    address router = address(0);
-    
+    // 4. Mint LP Token
+    (, , uint256 moreLPAmount) = 
+      router.addLiquidity(
+        baseToken,
+        farmingToken,
+        baseToken.myBalance(),
+        farmingToken.myBalance(),
+        0,
+        0,
+        address(this),
+        now
+      );
 
-
+    lpAmount = moreLPAmount;
+    // 5. Reset approval for safety reason
+    baseToken.safeApprove(address(router), 0);
+    farmingToken.safeApprove(address(router), 0);
   }
 
   function _removeLiquidity(uint256 pairId_, uint256 lpAmount_) private returns(uint256) {
+
+    PairInfo memory pairInfo = pairInfoMap[pairId_];
+    address baseToken = pairInfo.token0;
+    address farmingToken = pairInfo.token1;
+
+    // 1. Initliaze factory and router
+    IPancakeRouter02 router = IPancakeRouter02(registry.pancake());
+    IPancakeFactory factory = IPancakeFactory(router.factory());
+
+    // 2. Approve router to do their stuffs
+    IPancakePair lpToken = IPancakePair(factory.getPair(farmingToken, baseToken));
+    require(lpToken.approve(address(router), uint256(-1)), "Vault::_removeLiquidity:: unable to approve LP token");
+
+    // 3. Remove all liquidity back to BaseToken and farming tokens.
+    router.removeLiquidity(
+      baseToken,
+      farmingToken,
+      lpAmount_,
+      0,
+      0,
+      address(this),
+      now
+    );
+
+    // 4. Payback to bank
+    IBank(registry.brank()).payBack(farmingToken, amount0_);
+    
     return 0;
   }
 }
