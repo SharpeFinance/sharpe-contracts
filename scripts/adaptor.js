@@ -180,7 +180,9 @@ async function main(
   console.table([
     flStatus
   ], Object.keys(flStatus)
-  )
+  );
+
+  process.exit();
 }
 
 module.exports = {
