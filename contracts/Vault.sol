@@ -10,6 +10,7 @@ import "@pancakeswap-libs/pancake-swap-core/contracts/interfaces/IPancakeFactory
 import "@pancakeswap-libs/pancake-swap-core/contracts/interfaces/IPancakePair.sol";
 
 import "./interfaces/IRegistry.sol";
+import "./apis/pancakeV2/PancakeRouterV2.sol";
 
 interface IBank {
   function borrow(address token_, uint256 amount_) external;
@@ -187,7 +188,9 @@ contract Vault is Ownable {
     // borrow from bank
     IBank(registry.brank()).borrow(pairInfo.token1, amount0_);
 
+    address router = address(0);
     
+
 
   }
 

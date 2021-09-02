@@ -10,4 +10,5 @@ interface IRegistry {
   function saver() external view returns(address);
   function bank() external view returns(address);
   function vault() external view returns(address);
+  function pancake() external view returns(address);
 }
