@@ -5,3 +5,4 @@
 *.swp
 .secret
 .DS_Store
+address.json
