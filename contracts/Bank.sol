@@ -46,6 +46,8 @@ contract Bank is Ownable {
     registry = registry_;
   }
 
+  event Deposit(address who, uint256 cashAmount, uint256 sharesToAdd);
+
   function getInterestRate(
       address token_,
       uint256 cashPerShare_,
@@ -57,22 +59,24 @@ contract Bank is Ownable {
 
   function updatePool(address token_) public {
     PoolInfo storage poolInfo = poolMap[token_];
-    uint256 interestRate = getInterestRate(
-        token_, poolInfo.cashPerShare, poolInfo.loanPerShare);
+    if (poolInfo.lastTime > 0) {
+      uint256 interestRate = getInterestRate(token_, poolInfo.cashPerShare, poolInfo.loanPerShare);
+      uint256 duration = now.sub(poolInfo.lastTime);
 
-    uint256 duration = now.sub(poolInfo.lastTime);
+      // Updates loanPerShare.
+      poolInfo.loanPerShare = poolInfo.loanPerShare.add(
+          poolInfo.loanPerShare.mul(interestRate.mul(duration)).div(RATE_BASE));
 
-    // Updates loanPerShare.
-    poolInfo.loanPerShare = poolInfo.loanPerShare.add(
-        poolInfo.loanPerShare.mul(interestRate.mul(duration)).div(RATE_BASE));
+      // Updates loanPerUnit.
+      poolInfo.loanPerUnit = poolInfo.loanPerUnit.add(
+          poolInfo.loanPerUnit.mul(interestRate.mul(duration)).div(RATE_BASE));
 
-    // Updates loanPerUnit.
-    poolInfo.loanPerUnit = poolInfo.loanPerUnit.add(
-        poolInfo.loanPerUnit.mul(interestRate.mul(duration)).div(RATE_BASE));
+      // Updates cashPerShare.
+      uint256 cashAmount = ISaver(registry.saver()).getAmount(token_);
+      if (poolInfo.shares != 0) poolInfo.cashPerShare = cashAmount.div(poolInfo.shares);
+    }
 
-    // Updates cashPerShare.
-    uint256 cashAmount = ISaver(registry.saver()).getAmount(token_);
-    poolInfo.cashPerShare = cashAmount.div(poolInfo.shares);
+    poolInfo.lastTime = now;
   }
 
   function getUserBalance(address who_, address token_) public view returns(uint256) {
@@ -89,16 +93,17 @@ contract Bank is Ownable {
     PoolInfo storage poolInfo = poolMap[token_];
     UserInfo storage userInfo = userMap[_msgSender()][token_];
 
-    uint256 totalPerShare = poolInfo.cashPerShare + poolInfo.loanPerShare;
-    uint256 sharesToAdd = amount_.mul(SHARE_BASE).div(totalPerShare);
-    uint256 loanAmount = poolInfo.loanPerShare.mul(userInfo.shares);
+    // uint256 totalPerShare = poolInfo.cashPerShare + poolInfo.loanPerShare;
+
+    uint256 sharesToAdd = poolInfo.cashPerShare == 0 ? amount_ : amount_.mul(poolInfo.shares).div(userInfo.shares);
+    // uint256 loanAmount = poolInfo.loanPerShare.mul(userInfo.shares);
 
     // Add shares.
     userInfo.shares = userInfo.shares.add(sharesToAdd);
     poolInfo.shares = poolInfo.shares.add(sharesToAdd);
 
     // Updates loanPerShare.
-    poolInfo.loanPerShare = loanAmount.mul(SHARE_BASE).div(userInfo.shares);
+    // poolInfo.loanPerShare = loanAmount.mul(SHARE_BASE).div(userInfo.shares);
 
     // No need to update loanPerUnit.
 
@@ -107,7 +112,11 @@ contract Bank is Ownable {
 
     // Re-balance saver and updates cashPerShare.
     ISaver(registry.saver()).rebalance(token_);
+
     uint256 cashAmount = ISaver(registry.saver()).getAmount(token_);
+    
+    emit Deposit(msg.sender, cashAmount, sharesToAdd);
+
     poolInfo.cashPerShare = cashAmount.div(poolInfo.shares);
   }
 

@@ -114,8 +114,7 @@ contract('Bank', function ([_, creator, nonOwner, someone, foo]) {
       20
     );
 
-    await this.bank.initPool(this.DAIMock.address);
-
+    // await this.bank.initPool(this.DAIMock.address);
     console.log('interestRate', interestRate.toString())
     await this.bank.deposit(
       this.DAIMock.address,
@@ -144,23 +143,23 @@ contract('Bank', function ([_, creator, nonOwner, someone, foo]) {
 
     await dumpInfo();
 
-    await this.bank.deposit(
-      this.DAIMock.address,
-      BNify('100').mul(this.one), 
-      {
-      from: someone
-    });
+    // await this.bank.deposit(
+    //   this.DAIMock.address,
+    //   BNify('100').mul(this.one), 
+    //   {
+    //   from: someone
+    // });
 
-    await dumpInfo();
+    // await dumpInfo();
 
-    await this.bank.deposit(
-      this.DAIMock.address,
-      BNify('100').mul(this.one), 
-      {
-      from: someone
-    });
+    // await this.bank.deposit(
+    //   this.DAIMock.address,
+    //   BNify('100').mul(this.one), 
+    //   {
+    //   from: someone
+    // });
 
-    await dumpInfo();
+    // await dumpInfo();
 
     // check balance
     const leftBalance = await this.DAIMock.balanceOf(someone)
