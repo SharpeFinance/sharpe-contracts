@@ -80,7 +80,7 @@ contract Vault is Ownable {
     uint256 amountIn = 1 ** 18;
     uint256[] memory amountOuts = router.getAmountsOut(amountIn, path);
 
-    return amountOuts[0];
+    return amountOuts[0].mul(PRICE_BASE);
   }
 
   function getPriceNearBy(uint256 pairId_) public view returns(uint256[] memory) {
