@@ -72,15 +72,15 @@ contract Vault is Ownable {
     address farmingToken = pairInfo.token1;
     // Initliaze router and path
     IPancakeRouter02 router = IPancakeRouter02(registry.pancake());
-    address[] path = new address[](1);
+    address[] memory path = new address[](1);
     path[0] = baseToken;
     path[0] = farmingToken;
 
     // Get Price of baseToken to farmingToken
-    uint256 amountIn = IERC20(baseToken).decimails().mul(1);
-    uint256 amountOut = router.getAmountsOut(amountIn, path);
+    uint256 amountIn = 1 ** 18;
+    uint256[] memory amountOuts = router.getAmountsOut(amountIn, path);
 
-    return amountOut;
+    return amountOuts[0];
   }
 
   function getPriceNearBy(uint256 pairId_) public view returns(uint256[] memory) {
