@@ -84,22 +84,22 @@ contract Vault is Ownable {
   }
 
   function getPriceNearBy(uint256 pairId_) public view returns(uint256[] memory) {
-      uint256 priceLimit = 20;  // size of price
-      uint256 stepPercent = 2;  // 2% percent of currentPrice
+    uint256 priceLimit = 20;  // size of price
+    uint256 stepPercent = 2;  // 2% percent of currentPrice
 
-      uint256 currentPrice = getPrice(pairId_);
-      uint256[] memory nearPrices = new uint256[](priceLimit);
-      uint256 stepPrice = currentPrice.mul(100).mul(stepPercent).div(10000); // currentPrice * 0.02
+    uint256 currentPrice = getPrice(pairId_);
+    uint256[] memory nearPrices = new uint256[](priceLimit);
+    uint256 stepPrice = currentPrice.mul(100).mul(stepPercent).div(10000); // currentPrice * 0.02
 
-      uint256 startOffset = priceLimit.div(2).sub(1); // priceLimit / 2 - 1
-      uint256 cursorPrice = currentPrice.sub(stepPrice.mul(startOffset));
+    uint256 startOffset = priceLimit.div(2).sub(1); // priceLimit / 2 - 1
+    uint256 cursorPrice = currentPrice.sub(stepPrice.mul(startOffset));
 
-      for (uint8 index = 0; index < priceLimit; index++) {
-        nearPrices[index] = cursorPrice;
-        cursorPrice = cursorPrice.add(stepPrice);
-      }
+    for (uint8 index = 0; index < priceLimit; index++) {
+      nearPrices[index] = cursorPrice;
+      cursorPrice = cursorPrice.add(stepPrice);
+    }
 
-      return nearPrices;
+    return nearPrices;
   }
 
   function findAvailableIndex(uint256 pairId_, address who_) public view returns(uint256) {
