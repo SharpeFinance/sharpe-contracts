@@ -103,7 +103,7 @@ contract Vault is Ownable {
   }
 
   function findAvailableIndex(uint256 pairId_, address who_) public view returns(uint256) {
-    return allPositions[who_][pairId_].length;
+    return 0;
   }
 
   function _checkInRange(uint256 pairId_, uint256 lowPrice_, uint256 highPrice_) private {
