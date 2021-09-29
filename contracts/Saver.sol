@@ -81,20 +81,19 @@ contract Saver is ISaver, Ownable {
    */
   function getAmount(address token_) 
     external override view returns(uint256) {
-    (address[] memory tokenAddresses, uint256[] memory amounts, uint256 totalInUnderlying) = _getCurrentAllocations(token_);
-    return totalInUnderlying;
+      (address[] memory tokenAddresses, uint256[] memory amounts, uint256 totalInUnderlying) = _getCurrentAllocations(token_);
+      return totalInUnderlying;
   }
-
 
   /**
    *
    * getRate
    *
    * @param token_ : token address
-   * @return : apr
+   * @return avgApr : avgApr
    */
   function getRate(address token_)
-    public view
+    public view override
     returns (uint256 avgApr) {
       (, uint256[] memory amounts, uint256 total) = _getCurrentAllocations(token_);
       uint256 currApr;
@@ -123,12 +122,12 @@ contract Saver is ISaver, Ownable {
   function openRebalance(address token_, uint256[] calldata _newAllocations)
     external 
       returns (bool, uint256 avgApr) {
-        uint256 initialAPR = getAvgAPR(token_);
+        uint256 initialAPR = getRate(token_);
         // Validate and update rebalancer allocations
         address reblancerAddr = getTokenRebalancer[token_];
         IRebalancer(reblancerAddr).setAllocations(_newAllocations, allAdaptors);
         bool hasRebalanced = _rebalance(token_, false);
-        uint256 newAprAfterRebalance = getAvgAPR(token_);
+        uint256 newAprAfterRebalance = getRate(token_);
         require(newAprAfterRebalance > initialAPR, "APR not improved");
         return (hasRebalanced, newAprAfterRebalance);
   }
@@ -275,15 +274,11 @@ contract Saver is ISaver, Ownable {
 
     (address[] memory tokenAddresses, uint256[] memory amounts, uint256 totalInUnderlying) = _getCurrentAllocations(token_);
     uint256[] memory newAmounts = _amountsFromAllocations(rebalancerLastAllocations, totalInUnderlying);
-    
     (uint256[] memory toMintAllocations, uint256 totalToMint, bool lowLiquidity) = _redeemAllNeeded(token_, tokenAddresses, amounts, newAmounts);
-
     emit DoRebalance(lowLiquidity, toMintAllocations, totalToMint);
     _doRebalance(token_, lowLiquidity, toMintAllocations, totalToMint, rebalancerLastAllocations);
-
     return true; // hasRebalanced
   }
-
 
   function _doRebalance(address token_, bool lowLiquidity, uint256[] memory toMintAllocations, uint256 totalToMint, uint256[] memory rebalancerLastAllocations) internal {
     // liquidity do not update
@@ -305,7 +300,6 @@ contract Saver is ISaver, Ownable {
       _mintWithAmounts(token_, allAdaptors, partialAmounts);
     }
   }
-
 
   /**
    * Calculate amounts from percentage allocations (100000 => 100%)
@@ -352,7 +346,6 @@ contract Saver is ISaver, Ownable {
     return abi.decode(data, (uint256));
   }
 
-
   /**
    *
    * Withdraw from Saver
@@ -386,7 +379,6 @@ contract Saver is ISaver, Ownable {
         SafeToken.safeTransferETH(toAddress_, amount_);
       }
     }
-
     emit Withdraw(toAddress_, token_, amount_, balance);
   }
 
