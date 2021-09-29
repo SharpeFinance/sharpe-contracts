@@ -3,6 +3,7 @@ const AdaptorRouter = artifacts.require("AdaptorRouter");
 const VenusAdaptor = artifacts.require("VenusAdaptor");
 const Registry = artifacts.require("Registry");
 const BasicModel = artifacts.require("BasicModel");
+const Rebalancer = artifacts.require("Rebalancer");
 
 const Bank = artifacts.require("Bank");
 const Vault = artifacts.require("Vault");
@@ -11,7 +12,7 @@ const Saver = artifacts.require("Saver");
 const fs = require('fs');
 
 module.exports = async function (deployer, network, accounts) {
-  // console.log(accounts, network)
+  console.log(accounts, network)
   await Promise.all([
     await deployer.deploy(AdaptorRouter),
     await deployer.deploy(Saver),
@@ -56,9 +57,22 @@ module.exports = async function (deployer, network, accounts) {
     venus.address
   ]);
 
+
+  await deployer.deploy(Rebalancer, venus.address, alpaca.address, accounts[0]);
+
+  const rebalancer = await Rebalancer.deployed();
+  await rebalancer.setSaver(saver.address);
+
   let WNativeToken = '0xDfb1211E2694193df5765d54350e1145FD2404A1';
   let pairInfos = [];
+
   if (network == 'testnet') {
+
+    await saver.setTokenRebalancer(
+      WNativeToken,
+      rebalancer.address, 
+    );
+
     pairInfos = [
       {
         baseToken: '0xDfb1211E2694193df5765d54350e1145FD2404A1',

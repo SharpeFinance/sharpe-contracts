@@ -41,7 +41,7 @@ contract Rebalancer is IRebalancer, Ownable {
       saver = _saver;
   }
 
-  function setNewToken(address _newToken) 
+  function setNewToken(address _newToken)
     external onlyOwner {
       require(_newToken != address(0), "New token should be != 0");
       for(uint256 i = 0; i < lastAmountsAddresses.length; i++) {
@@ -68,7 +68,7 @@ contract Rebalancer is IRebalancer, Ownable {
       require(total == 100000, "NOT 100%");
   }
 
-  function getAllocations() 
+  function getAllocations()
     external view override returns (uint256[] memory _allocations){
       return lastAmounts;
   }

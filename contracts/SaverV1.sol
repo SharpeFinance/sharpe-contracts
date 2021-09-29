@@ -10,7 +10,7 @@ import "./adaptors/AlpacaAdaptor.sol";
 import "./adaptors/VenusAdaptor.sol";
 
 // This contract is owned by Timelock.
-contract Saver is ISaver, Ownable {
+contract SaverV1 is ISaver, Ownable {
 
   using SafeERC20 for IERC20;
   using SafeMath for uint256;
