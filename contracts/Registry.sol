@@ -15,6 +15,7 @@ contract Registry is Ownable, IRegistry {
   address public override saver;
   address public override bank;
   address public override vault;
+  address public override pancake;
 
   function setInterestModel(address interestModel_) external onlyOwner {
     interestModel = interestModel_;
@@ -30,5 +31,9 @@ contract Registry is Ownable, IRegistry {
 
   function setVault(address vault_) external onlyOwner {
     vault = vault_;
+  }
+
+  function setPancake(address pancake_) external onlyOwner {
+    pancake = pancake_;
   }
 }

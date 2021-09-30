@@ -6,10 +6,22 @@ import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 
+import "@pancakeswap-libs/pancake-swap-core/contracts/interfaces/IPancakeFactory.sol";
+import "@pancakeswap-libs/pancake-swap-core/contracts/interfaces/IPancakePair.sol";
+
+import "./interfaces/IRegistry.sol";
+import "./interfaces/pancake/IPancakeRouter02.sol";
+import "./SafeToken.sol";
+
+interface IBank {
+  function borrow(address token_, uint256 amount_) external;
+  function payBack(address token_, uint256 amount_ ) external;
+}
 
 // This contract is owned by Timelock.
 contract Vault is Ownable {
 
+  using SafeToken for address;
   using SafeERC20 for IERC20;
   using SafeMath for uint256;
 
@@ -48,10 +60,46 @@ contract Vault is Ownable {
   // who => pairId => index => Position
   mapping(address => mapping(uint256 => mapping(uint256 => Position))) public allPositions;
 
-  function getPrice(uint256 pairId_) public view returns(uint256) {
+  IRegistry public registry;
+
+  constructor (IRegistry registry_) public {
+    registry = registry_;
   }
 
-  function getPriceNearBy(uint256 pairId_) public view returns(uint256 [] memory) {
+  function getPrice(uint256 pairId_) public view returns(uint256) {
+    PairInfo memory pairInfo = pairInfoMap[pairId_];
+    address baseToken = pairInfo.token0;
+    address farmingToken = pairInfo.token1;
+    // Initliaze router and path
+    IPancakeRouter02 router = IPancakeRouter02(registry.pancake());
+    address[] memory path = new address[](1);
+    path[0] = baseToken;
+    path[0] = farmingToken;
+
+    // Get Price of baseToken to farmingToken
+    uint256 amountIn = 1 ** 18;
+    uint256[] memory amountOuts = router.getAmountsOut(amountIn, path);
+
+    return amountOuts[0].mul(PRICE_BASE);
+  }
+
+  function getPriceNearBy(uint256 pairId_) public view returns(uint256[] memory) {
+    uint256 priceLimit = 20;  // size of price
+    uint256 stepPercent = 2;  // 2% percent of currentPrice
+
+    uint256 currentPrice = getPrice(pairId_);
+    uint256[] memory nearPrices = new uint256[](priceLimit);
+    uint256 stepPrice = currentPrice.mul(100).mul(stepPercent).div(10000); // currentPrice * 0.02
+
+    uint256 startOffset = priceLimit.div(2).sub(1); // priceLimit / 2 - 1
+    uint256 cursorPrice = currentPrice.sub(stepPrice.mul(startOffset));
+
+    for (uint8 index = 0; index < priceLimit; index++) {
+      nearPrices[index] = cursorPrice;
+      cursorPrice = cursorPrice.add(stepPrice);
+    }
+
+    return nearPrices;
   }
 
   function findAvailableIndex(uint256 pairId_, address who_) public view returns(uint256) {
@@ -165,10 +213,69 @@ contract Vault is Ownable {
   function transferAfterStop() external {
   }
 
-  function _borrowAndAddLiquidity(uint256 pairId_, uint256 amount0_) private returns(uint256) {
+  function _borrowAndAddLiquidity(uint256 pairId_, uint256 amount0_) private returns(uint256 lpAmount) {
+
+    PairInfo memory pairInfo = pairInfoMap[pairId_];
+    address baseToken = pairInfo.token0;
+    address farmingToken = pairInfo.token1;
+
+    // 1. Initliaze factory and router
+    IPancakeRouter02 router = IPancakeRouter02(registry.pancake());
+    IPancakeFactory factory = IPancakeFactory(router.factory());
+    // IPancakePair lpToken = IPancakePair(factory.getPair(baseToken, farmingToken));
+
+    // 2. Approve router to do their stuffs
+    farmingToken.safeApprove(address(router), uint256(-1));
+    baseToken.safeApprove(address(router), uint256(-1));
+
+    // 3. Borrow token1 from bank
+    IBank(registry.bank()).borrow(farmingToken, amount0_);
+
+    // 4. Mint LP Token
+    (, , uint256 moreLPAmount) = router.addLiquidity(
+        baseToken,
+        farmingToken,
+        baseToken.myBalance(),
+        farmingToken.myBalance(),
+        0,
+        0,
+        address(this),
+        now
+      );
+
+    lpAmount = moreLPAmount;
+    // 5. Reset approval for safety reason
+    baseToken.safeApprove(address(router), 0);
+    farmingToken.safeApprove(address(router), 0);
   }
 
   function _removeLiquidity(uint256 pairId_, uint256 lpAmount_) private returns(uint256) {
-    return 0;
+
+    PairInfo memory pairInfo = pairInfoMap[pairId_];
+    address baseToken = pairInfo.token0;
+    address farmingToken = pairInfo.token1;
+
+    // 1. Initliaze factory and router
+    IPancakeRouter02 router = IPancakeRouter02(registry.pancake());
+    IPancakeFactory factory = IPancakeFactory(router.factory());
+
+    // 2. Approve router to do their stuffs
+    IPancakePair lpToken = IPancakePair(factory.getPair(farmingToken, baseToken));
+    require(lpToken.approve(address(router), uint256(-1)), "Vault::_removeLiquidity:: unable to approve LP token");
+
+    // 3. Remove all liquidity back to BaseToken and farming tokens.
+    (uint256 amountA, uint256 amountB) = router.removeLiquidity(
+        baseToken,
+        farmingToken,
+        lpAmount_,
+        0,
+        0,
+        address(this),
+        now
+      );
+
+    // 4. Payback farmingToken to bank
+    IBank(registry.bank()).payBack(farmingToken, amountB);
+    return amountA;
   }
 }

@@ -141,23 +141,23 @@ async function main(
   console.log('wait 5 second then withdraw');
   await wait(5 * 1000);;
 
-  const nowUsedAdaptor = await saver.methods.getCurrentAdaptorsUsed(baseToken, [0]).call();
-  let userAdpator = allAdaptors.filter(_ => _.addr == nowUsedAdaptor);
+  // const nowUsedAdaptor = await saver.methods.getCurrentAdaptorsUsed(baseToken, [0]).call();
+  // let userAdpator = allAdaptors.filter(_ => _.addr == nowUsedAdaptor);
   // console.log(nowUsedAdaptor, userAdpator);
-  let adaptor = await getContractAt(userAdpator[0].name, nowUsedAdaptor);
-  const adaptorAmounNow = await adaptor.methods.getAmount(baseToken).call();
-  const adaptorPriceNow = await adaptor.methods.getPriceInToken(baseToken).call();
+  // let adaptor = await getContractAt(userAdpator[0].name, nowUsedAdaptor);
+  const adaptorAmounNow = await saver.methods.getAmount(baseToken).call();
+  // const adaptorPriceNow = await adaptor.methods.getPriceInToken(baseToken).call();
   // try withdraw
   if (adaptorAmounNow > 0) {
-    console.table([
-      {
-        adaptorAmounNow: adaptorAmounNow/BASE,
-        adaptorPriceNow: adaptorPriceNow/BASE
-      }
-    ], [
-      'adaptorAmounNow',
-      'adaptorPriceNow'
-    ])
+    // console.table([
+    //   {
+    //     adaptorAmounNow: adaptorAmounNow/BASE,
+    //     adaptorPriceNow: adaptorPriceNow/BASE
+    //   }
+    // ], [
+    //   'adaptorAmounNow',
+    //   'adaptorPriceNow'
+    // ])
     try {
       const withdrawResult = await saver.methods.
         withdraw(baseToken, adaptorAmounNow, founder)
@@ -180,7 +180,9 @@ async function main(
   console.table([
     flStatus
   ], Object.keys(flStatus)
-  )
+  );
+
+  process.exit();
 }
 
 module.exports = {

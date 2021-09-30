@@ -12,11 +12,9 @@ const TripleSlopeModel = artifacts.require('TripleSlopeModel');
 const iDAIConfigMock = artifacts.require('iDAIConfigMock');
 const DAIMock = artifacts.require('DAIMock');
 const Saver = artifacts.require('Saver');
-const Rebalancer = artifacts.require('Rebalancer');
 const BNify = n => new BN(String(n));
 
 contract('Saver', function ([_, creator, nonOwner, someone, foo]) {
-
   beforeEach(async function() {
 
     this.one = new BN('1000000000000000000');
@@ -59,15 +57,6 @@ contract('Saver', function ([_, creator, nonOwner, someone, foo]) {
       { from: creator }
     )
 
-    this.Rebalancer = await Rebalancer.new(
-      this.venusAdaptor.address,
-      this.alpacaAdaptor.address,
-      someone,
-      { from: creator }
-    );
-
-    await this.Rebalancer.setSaver(this.saver.address, { from: creator });
-
     await this.adaptorRouter.addPair(
       this.DAIMock.address, 
       'AlpacaAdaptor',
@@ -90,12 +79,6 @@ contract('Saver', function ([_, creator, nonOwner, someone, foo]) {
       { from: creator }
     );
 
-    await this.saver.setTokenRebalancer(
-      this.DAIMock.address,
-      this.Rebalancer.address, 
-      { from: creator }
-    );
-
   })
 
   it('setAdaptors same with address', async function () {
@@ -111,9 +94,12 @@ contract('Saver', function ([_, creator, nonOwner, someone, foo]) {
   });
 
   it('getAPRs', async function () {
+
     await this.DAIMock.transfer(this.iDAIMock.address, BNify('100').mul(this.one), {from: creator});
     await this.iDAIMock.setVaultDebtVal(BNify('50').mul(this.one));
-    // const aprs = await this.saver.getAPRs(this.DAIMock.address);
+
+    const aprs = await this.saver.getAPRs(this.DAIMock.address);
+    console.log(aprs.aprs.map(_ => _.toString()));
     // (await this.saver.getAPRs(this.DAIMock.address)).toString().should.equal('0');
   });
 
@@ -127,10 +113,12 @@ contract('Saver', function ([_, creator, nonOwner, someone, foo]) {
       {from: creator}
     );
 
-    const holdAmount = await this.DAIMock.balanceOf(this.saver.address);
-    const alloctions = await this.saver.getCurrentAllocations(this.DAIMock.address);
-    // console.log('alloctions', holdAmount.toString(), alloctions)
-    await this.saver.rebalance(this.DAIMock.address);
+    await this.saver.rebalance(
+      this.DAIMock.address, 
+      {
+      from: creator
+    });
+
     // check balance
     const leftBalance = await this.DAIMock.balanceOf(this.saver.address)
     leftBalance.should.be.bignumber.equal(BNify('0'), 'nothing left');
@@ -139,70 +127,24 @@ contract('Saver', function ([_, creator, nonOwner, someone, foo]) {
     const amount = await this.saver.getAmount(this.DAIMock.address);
     amount.should.be.bignumber.equal(BNify('100').mul(this.one), 'getAmount match');
 
-    // const usedAdaptor = await this.saver.getCurrentAdaptorsUsed(this.DAIMock.address, [0]);
-    // console.log(
-    //   usedAdaptor.toString(), 
-    //   this.alpacaAdaptor.address.toString()
-    // )
+    const usedAdaptor = await this.saver.getCurrentAdaptorsUsed(this.DAIMock.address, [0]);
+    
+    console.log(
+      usedAdaptor.toString(), 
+      this.alpacaAdaptor.address.toString()
+    )
+
     // usedAdaptor.should.be.equal(usedAdaptor.toString(), this.venusAdaptor.address.toString(),
     //  'adaptor venus');
-    // const targetMock = usedAdaptor.toString() == this.venusAdaptor.address.toString() ? this.cDAIMock  : this.iDAIMock
+    const targetMock = usedAdaptor.toString() == this.venusAdaptor.address.toString() ? this.cDAIMock  : this.iDAIMock
 
-    // const venusBalance = await targetMock.balanceOf(targetMock.address)
+    const venusBalance = await targetMock.balanceOf(targetMock.address)
     //  venusBalance.should.be.bignumber.equal(BNify('100').mul(this.one), 
     //  'venus hold all balance')
+
     //  const adaptorCtokenBalances = await targetMock.balanceOf(usedAdaptor)
     //  adaptorCtokenBalances.should.be.bignumber.equal(BNify('500000000000'), 
     //  'adaptor hold all cToken balance')
-  });
-
-
-  it('rebalance when alloctions changed', async function () {
-    await this.DAIMock.transfer(this.iDAIMock.address, BNify('100').mul(this.one), {from: creator});
-    await this.iDAIMock.setVaultDebtVal(BNify('50').mul(this.one));
-    let token_ = this.DAIMock.address;
-    await this.DAIMock.transfer(
-      this.saver.address, 
-      BNify('100').mul(this.one), 
-      {from: creator}
-    );
-
-    await this.saver.rebalance(token_);
-
-    const beforeAlloctions = (await this.saver.getCurrentAllocations(token_)).amounts.map(_ => _.toString());
-    beforeAlloctions[0].should.be.equal("100000000000000000000", 'first should be 100%');
-    beforeAlloctions[1].should.be.equal("0", 'second should be 0%');
-
-    // change alloctions
-    await this.Rebalancer.setAllocations(
-      [
-        BNify('20000'), 
-        BNify('80000')
-      ],
-      [
-        this.venusAdaptor.address,
-        this.alpacaAdaptor.address,
-      ],
-      { from: someone }
-    );
-
-    await this.saver.rebalance(this.DAIMock.address);
-
-    const afterAlloctions = (await this.saver.getCurrentAllocations(token_)).amounts.map(_ => _.toString());
-
-    afterAlloctions[0].should.be.equal("20000000000000000000", 'first should be 20%');
-    afterAlloctions[1].should.be.equal("80000000000000000000", 'second should be 80%');
-
-    // check balance
-    const leftBalance = await this.DAIMock.balanceOf(this.saver.address)
-    leftBalance.should.be.bignumber.equal(BNify('0'), 'nothing left');
-
-    // check getAmount
-    const amount = await this.saver.getAmount(this.DAIMock.address);
-    amount.should.be.bignumber.equal(BNify('100').mul(this.one), 'getAmount match');
-
-    // const allAdaptors = await this.saver.getAllAdaptors();
-    // console.log(allAdaptors)
   });
 
 
@@ -224,11 +166,14 @@ contract('Saver', function ([_, creator, nonOwner, someone, foo]) {
     );
 
     await this.saver.rebalance(
-      this.DAIMock.address,
-    );
+      this.DAIMock.address, 
+      {
+      from: creator
+    });
 
     const allAmount = await this.saver.getAmount(this.DAIMock.address);
-    // console.log('saver amount', allAmount.div(this.one).toString());
+    console.log('saver amount', allAmount.div(this.one).toString());
+
     await this.saver.withdraw(this.DAIMock.address, BNify('100').mul(this.one), nonOwner);
     // console.log((await this.DAIMock.balanceOf(nonOwner)).div(this.one).toString());
     (await this.DAIMock.balanceOf(nonOwner)).div(this.one).toString().should.be.equal("100");
