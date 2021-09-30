@@ -150,7 +150,6 @@ contract Saver is ISaver, Ownable {
       return (tokenAddresses, amounts, total);
   }
 
-
   function _mintWithAmounts(address token_, address[] memory tokenAddresses, uint256[] memory adaptorAmounts) internal {
     require(tokenAddresses.length == adaptorAmounts.length, "All tokens length != allocations length");
     uint256 currAmount;

@@ -41,11 +41,8 @@ async function main(
   const accounts = await web3.eth.getAccounts();
   const nonOwner = accounts[0];
   const founder = accounts[0];
-  // const testAmount = 1 * 1e16;
 
   let BASE = 1e18;
-  let testAll = testAdaptors.length > 1;
-  let currentAdaporType = testAll ? testAdaptors[0] : testAdaptors[0];
   let baseTk = new web3.eth.Contract(minABI, baseToken);
   let saverBalance = (await baseTk.methods.balanceOf(address.Saver).call()) / BASE;
 
